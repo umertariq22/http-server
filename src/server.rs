@@ -53,7 +53,7 @@ mod server{
         };
         response    
     }
-    pub fn handle_requests(listener:TcpListener){
+    pub fn handle_requests(listener:&TcpListener){
         let mut buffer = [0; 1024];
         for stream in listener.incoming(){
             let mut stream = stream.unwrap();
