@@ -3,7 +3,7 @@
 version = 3
 
 [[package]]
-name = "http-server"
+name = "httpserver"
 version = "0.1.0"
 dependencies = [
  "walkdir",
