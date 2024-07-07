@@ -1,12 +1,36 @@
 mod server{
     use std::collections::HashMap;
-    use std::fs::read_to_string;
     use std::io::{Read, Write};
     use::std::net::TcpListener;
     use std::path::Path;
 
 
-    type route = fn(&Request) -> Response;
+    type Route = fn(&Request) -> Response;
+
+    pub struct Router{
+        routes: HashMap<String,Route>
+    }
+
+    impl Router{
+        pub fn new() -> Router{
+            Router{
+                routes: HashMap::new()
+            }
+        }
+
+        pub fn add_route(&mut self, path: String, route: Route){
+            self.routes.insert(path,route);
+        }
+
+        pub fn get_route(&self, path: &String) -> Option<&Route>{
+            self.routes.get(path)
+        }
+
+        pub fn delete_route(&mut self, path: &String){
+            self.routes.remove(path);
+        }
+    
+    }
 
     pub struct Request{
         method: String,
@@ -112,7 +136,23 @@ mod server{
                 body: String::new()
             }
         }
+
+        pub fn set_status_code(&mut self, status_code: u16){
+            self.status_code = status_code;
+        }
+
+        pub fn set_header(&mut self, key: String, value: String){
+            self.headers.insert(key,value);
+        }
+
+        pub fn set_body(&mut self, body: String){
+            self.body = body;
+        }
+
+
     }
+    
+    
 
     pub fn start_server(address:String)->TcpListener {
         let listener_result = TcpListener::bind(address);
@@ -130,31 +170,48 @@ mod server{
         request
     }
 
-    fn handle_client(mut stream: std::net::TcpStream) {
+    fn create_response_string(response: &Response) -> String {
+        let mut response_string = format!("HTTP/1.1 {}\r\n", response.status_code);
+        for (key, value) in &response.headers {
+            response_string.push_str(&format!("{}: {}\r\n", key, value));
+        }
+        response_string.push_str("\r\n");
+        response_string.push_str(&response.body);
+        response_string
+    }
+
+    fn handle_client(mut stream: std::net::TcpStream, router: &mut Router) {
         let path = extract_request(&stream);
 
-        let final_response = if path.route_exists {
-            let contents = read_to_string(&path.file_path).unwrap();
-            let response = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}", contents.len(), contents);
-            response
-        } else {
-            let contents = match read_to_string("website/404.html") {
-                Ok(contents) => contents,
-                Err(_) => "404 Not Found".to_string(),
-            };
-            let response = format!("HTTP/1.1 404 NOT FOUND\r\n\r\n\r\n{}", contents);
-            response
-        };
+        let route_exists = path.route_exists;
+        if !route_exists{
+            let new_route = "404".to_string();
+            if router.get_route(&new_route).is_none(){
+                router.add_route(new_route.clone(),|path|{
+                    let mut response = Response::new();
+                    response.set_status_code(404);
+                    response.set_body("404 Not Found".to_string());
+                    response
+                });
+            }
+
+
+        }
+        
+        let route = router.get_route(&path.request_uri).unwrap();
+        let response = (route)(&path);
+
+        let final_response = create_response_string(&response);
 
         stream.write(final_response.as_bytes()).unwrap();
         stream.flush().unwrap();
     }
 
-    pub fn run_server(listener: TcpListener) {
+    pub fn listen(listener: TcpListener, router: &mut Router) {
         for stream in listener.incoming() {
             match stream {
                 Ok(stream) => {
-                    handle_client(stream);
+                    handle_client(stream,router);
                 }
                 Err(error) => {
                     panic!("Error: {}", error);
